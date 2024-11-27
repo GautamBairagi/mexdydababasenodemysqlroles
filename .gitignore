@@ -1,0 +1,64 @@
+/node_modules
+
+const express = require('express');
+const rateLimit = require('express-rate-limit');
+const bodyParser = require('body-parser');
+const jwt = require('jsonwebtoken');
+
+// Create an Express application
+const app = express();
+const port = 8000;
+
+// Use body-parser to parse JSON request bodies
+app.use(bodyParser.json());
+
+// JWT Secret Key (you should store this securely in environment variables)
+const JWT_SECRET =  'your-secret-key';
+
+// Set up rate limiter using JWT token (limit 5 failed attempts per 1 minute per user)
+const loginLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 5, // Limit each user to 5 failed login attempts per window
+  keyGenerator: (req) => req.userToken, // Use the JWT token as key for rate limit
+  message: 'Too many failed login attempts, please try again after 1 minute',
+});
+
+// Hardcoded credentials (for demo purposes)
+const validUsername = 'admin1';
+const validPassword = '1234';
+
+// Login route to generate JWT token
+app.post('/login', (req, res) => {
+  const { username, password } = req.body;
+
+  if (username === validUsername && password === validPassword) {
+    // Generate JWT token on successful login
+    const token = jwt.sign({ username }, JWT_SECRET, { expiresIn: '1h' });
+    return res.status(200).json({ message: 'Login successful', token });
+  } else {
+    return res.status(401).json({ message: 'Invalid username or password' });
+  }
+});
+
+// Middleware to authenticate JWT token and assign it to the request
+function authenticateToken(req, res, next) {
+  const token = req.headers['authorization']?.split(' ')[1];
+  if (!token) return res.status(403).json({ message: 'Token is missing' });
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) return res.status(403).json({ message: 'Invalid token' });
+    req.user = user;
+    req.userToken = token; // Store the token in request for rate-limiting
+    next();
+  });
+}
+
+// Protected route with rate limiting based on JWT token
+app.post('/protected', authenticateToken, loginLimiter, (req, res) => {
+  res.status(200).json({ message: 'Access granted to protected route' });
+});
+
+// Start the server
+app.listen(port, () => {
+  console.log(`Server is running on http://localhost:${port}`);
+});
